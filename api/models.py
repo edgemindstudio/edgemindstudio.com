@@ -63,8 +63,10 @@ class UserCourseProgress(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='progress')
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='progress')
     progress_percentage = models.FloatField(default=0.0)
+    completed_lessons = models.ManyToManyField(Lesson, blank=True)
     completed = models.BooleanField(default=False)
     last_accessed = models.DateTimeField(auto_now=True)
+
 
 # Forum Models
 class ForumThread(models.Model):
@@ -107,3 +109,12 @@ class BlogPost(models.Model):
     tags = models.JSONField(default=list)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+# Enrollment Model
+class Enrollment(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='enrollments')
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='enrollments')
+    enrolled_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'course')
