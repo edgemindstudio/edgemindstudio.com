@@ -1,3 +1,5 @@
+# Edgemindstudio/urls.py
+
 """
 URL configuration for Edgemindstudio project.
 

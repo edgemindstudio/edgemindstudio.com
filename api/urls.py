@@ -1,3 +1,5 @@
+# api/urls.py
+
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -21,7 +23,7 @@ router.register(r'blog-posts', BlogPostViewSet)
 router.register(r'ai-projects', AIProjectViewSet)
 router.register(r'comments', CommentViewSet)
 
-# ✅ Merge router + custom endpoints
+# Merge router + custom endpoints
 urlpatterns = [
     path('', include(router.urls)),  # <- this adds /api/courses/
 
@@ -39,7 +41,7 @@ urlpatterns = [
     path('courses/<int:pk>/enroll/', enroll_course),
     path('courses/<int:pk>/enrolled/', is_enrolled),
     path('courses/<int:pk>/enrolled-users/', enrolled_users),
-    path('courses/my-courses/', my_courses),
+    path('my-courses/', my_courses),
 
     # ✅ Progress
     path('courses/<int:course_id>/lessons/<int:lesson_id>/complete/', mark_lesson_complete),

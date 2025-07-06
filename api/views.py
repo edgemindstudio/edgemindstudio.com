@@ -1,27 +1,93 @@
 from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
-from rest_framework import status
+from rest_framework import status, viewsets, permissions, pagination, generics
 from rest_framework.parsers import MultiPartParser, FormParser
-from .serializers import UserUpdateSerializer  # ✅ Add this
-from rest_framework import viewsets, permissions
 from rest_framework.generics import CreateAPIView
 from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .serializers import RegisterSerializer
-from .models import User, Course, Lesson, ForumThread, ForumReply, BlogPost, AIProject, Comment
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from .models import Enrollment
-from .serializers import EnrollmentSerializer
-from rest_framework import generics
-from .serializers import (
-    UserSerializer, CourseSerializer, LessonSerializer, ForumThreadSerializer,
-    ForumReplySerializer, BlogPostSerializer, AIProjectSerializer, CommentSerializer
-)
-from .models import UserCourseProgress
-from .serializers import UserCourseProgressSerializer
 
+from .models import (
+    User, Course, Lesson, ForumThread, ForumReply,
+    BlogPost, AIProject, Comment, Enrollment, UserCourseProgress
+)
+from .serializers import (
+    UserSerializer, UserUpdateSerializer, RegisterSerializer,
+    CourseSerializer, LessonSerializer, ForumThreadSerializer,
+    ForumReplySerializer, BlogPostSerializer, AIProjectSerializer,
+    CommentSerializer, EnrollmentSerializer, UserCourseProgressSerializer
+)
+
+
+# Pagination for scalability
+class StandardResultsSetPagination(pagination.PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+# Authentication & User Utilities
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def user_data(request):
+    user = request.user
+    return Response({
+        'username': user.username,
+        'email': user.email,
+        'role': user.role
+    })
+
+
+# Enrollment & Progress
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def enroll_course(request, pk):
+    try:
+        course = Course.objects.get(pk=pk)
+    except Course.DoesNotExist:
+        return Response({'error': 'Course not found'}, status=404)
+
+    Enrollment.objects.get_or_create(user=request.user, course=course)
+    return Response({'message': 'Enrolled successfully'}, status=200)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def is_enrolled(request, pk):
+    enrolled = Enrollment.objects.filter(user=request.user, course_id=pk).exists()
+    return Response({"enrolled": enrolled})
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_courses(request):
+    enrollments = Enrollment.objects.filter(user=request.user).select_related('course')
+    data = [CourseSerializer(e.course).data for e in enrollments]
+    return Response(data)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def enrolled_users(request, pk):
+    if request.user.role != 'admin':
+        return Response({'error': 'Unauthorized'}, status=403)
+
+    try:
+        course = Course.objects.get(pk=pk)
+    except Course.DoesNotExist:
+        return Response({'error': 'Course not found'}, status=404)
+
+    users = Enrollment.objects.filter(course=course).select_related('user')
+    data = [
+        {
+            'id': e.user.id,
+            'username': e.user.username,
+            'email': e.user.email
+        } for e in users
+    ]
+    return Response(data)
+
+
+# Course Progress & Lesson Completion
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def course_progress(request, course_id):
@@ -31,7 +97,6 @@ def course_progress(request, course_id):
         return Response(serializer.data)
     except UserCourseProgress.DoesNotExist:
         return Response({'progress': 0}, status=200)
-
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -52,73 +117,23 @@ def mark_lesson_complete(request, course_id, lesson_id):
     progress.completed = (progress.progress_percentage == 100.0)
     progress.save()
 
-    return Response({'message': 'Lesson marked complete', 'progress': progress.progress_percentage})
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def my_courses(request):
-    enrollments = Enrollment.objects.filter(user=request.user).select_related('course')
-    data = [CourseSerializer(e.course).data for e in enrollments]
-    return Response(data)
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def enroll_course(request, pk):
-    try:
-        course = Course.objects.get(pk=pk)
-    except Course.DoesNotExist:
-        return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    Enrollment.objects.get_or_create(user=request.user, course=course)
-    return Response({'message': 'Enrolled successfully'}, status=status.HTTP_200_OK)
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def is_enrolled(request, pk):
-    enrolled = Enrollment.objects.filter(user=request.user, course_id=pk).exists()
-    return Response({"enrolled": enrolled})
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def user_data(request):
-    user = request.user
     return Response({
-        'username': user.username,
-        'email': user.email,
-        'role': user.role
+        'message': 'Lesson marked complete',
+        'progress': progress.progress_percentage
     })
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def enrolled_users(request, pk):
-    try:
-        course = Course.objects.get(pk=pk)
-    except Course.DoesNotExist:
-        return Response({'error': 'Course not found'}, status=404)
 
-    if request.user.role != 'admin':
-        return Response({'error': 'Unauthorized'}, status=403)
-
-    users = Enrollment.objects.filter(course=course).select_related('user')
-    data = [
-        {
-            'id': e.user.id,
-            'username': e.user.username,
-            'email': e.user.email
-        } for e in users
-    ]
-    return Response(data)
-
-
+# ViewSets with Pagination
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
 
 class CourseViewSet(viewsets.ModelViewSet):
-    queryset = Course.objects.all()
+    queryset = Course.objects.all().order_by('-created_at')
     serializer_class = CourseSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
+    pagination_class = StandardResultsSetPagination
 
     def retrieve(self, request, *args, **kwargs):
         course = self.get_object()
@@ -131,7 +146,7 @@ class CourseViewSet(viewsets.ModelViewSet):
         if is_enrolled or user.role in ['admin', 'staff']:
             data['lessons'] = LessonSerializer(course.lessons.all(), many=True).data
         else:
-            data['lessons'] = []  # hide lessons if not enrolled
+            data['lessons'] = []
 
         return Response(data)
 
@@ -140,22 +155,24 @@ class CourseViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Only staff/admin can create courses.")
         serializer.save(instructor=self.request.user)
 
-
 class LessonViewSet(viewsets.ModelViewSet):
-    queryset = Lesson.objects.all()
+    queryset = Lesson.objects.all().order_by('order')
     serializer_class = LessonSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
 
     def perform_create(self, serializer):
         if self.request.user.role not in ['admin', 'staff']:
-            raise PermissionDenied("Only instructors or admins can create lessons.")
+            raise PermissionDenied("Only instructors/admins can create lessons.")
         serializer.save()
 
     def perform_update(self, serializer):
         if self.request.user.role not in ['admin', 'staff']:
-            raise PermissionDenied("Only instructors or admins can update lessons.")
+            raise PermissionDenied("Only instructors/admins can update lessons.")
         serializer.save()
 
+
+# Additional ViewSets
 class ForumThreadViewSet(viewsets.ModelViewSet):
     queryset = ForumThread.objects.all()
     serializer_class = ForumThreadSerializer
@@ -181,6 +198,8 @@ class CommentViewSet(viewsets.ModelViewSet):
     serializer_class = CommentSerializer
     permission_classes = [IsAuthenticated]
 
+
+# Authentication Views
 class RegisterView(CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
@@ -215,7 +234,7 @@ class UserProfileUpdateView(APIView):
             return Response(serializer.data)
         return Response(serializer.errors, status=400)
 
-class EnrollCourseView(generics.CreateAPIView):
+class EnrollCourseView(CreateAPIView):
     serializer_class = EnrollmentSerializer
     permission_classes = [IsAuthenticated]
 
